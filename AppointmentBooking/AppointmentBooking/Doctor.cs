@@ -1,76 +1,82 @@
-﻿namespace ENSE707_AppointmentBooking
+﻿using System;
+using System.Collections.Generic;
+
+namespace ENSE707_AppointmentBooking
 {
     public class Doctor
     {
-        // Id has no setter - once assigned in the constructor it can never be
-        // changed again. This prevents other code from accidentally reassigning
-        // a doctor's identity after creation (immutability = reliability).
         public string Id { get; }
-
-        // Same reasoning as Id - a doctor's name shouldn't change after the
-        // object is created in this simple model.
         public string FullName { get; }
-
-        // 'private set' means AvailableSlots can be READ from anywhere,
-        // but can only be WRITTEN to from inside this class. This stops
-        // external code doing "doctor.AvailableSlots = 999" directly and
-        // forces all changes to go through ReserveSlot() below, where the
-        // rules are enforced (encapsulation).
         public int AvailableSlots { get; private set; }
 
-        // The constructor is the ONLY way to create a Doctor. Because it
-        // validates its inputs before assigning anything, it's impossible
-        // to end up with a Doctor object that's in an invalid state
-        // (e.g. empty name, negative slots).
-        public Doctor(string id, string fullName, int availableSlots)
+        // New: caps how many appointments this doctor can take on any
+        // single calendar day, independent of total AvailableSlots.
+        public int MaxDailyAppointments { get; }
+
+        // Tracks how many appointments are already booked per date.
+        // Keyed by date-only (no time component) so "23 July 9am" and
+        // "23 July 3pm" count toward the same day's limit.
+        private readonly Dictionary<DateTime, int> _dailyAppointmentCounts = new();
+
+        // maxDailyAppointments defaults to 5 so existing calls to the
+        // constructor (from your earlier tests) keep compiling without
+        // needing a 4th argument everywhere.
+        public Doctor(string id, string fullName, int availableSlots, int maxDailyAppointments = 5)
         {
-            // Guard clause: reject a missing/blank/whitespace-only ID.
-            // IsNullOrWhiteSpace catches null, "", and "   " in one check.
             if (string.IsNullOrWhiteSpace(id))
                 throw new ArgumentException("Doctor ID is required.");
 
-            // Same guard for the doctor's name.
             if (string.IsNullOrWhiteSpace(fullName))
                 throw new ArgumentException("Doctor name is required.");
 
-            // A doctor can't logically have a negative number of slots -
-            // this catches bad data (e.g. from a typo or bug) at the
-            // earliest possible point, rather than letting it corrupt
-            // later booking logic.
             if (availableSlots < 0)
                 throw new ArgumentException("Available slots cannot be negative.");
 
-            // Only reached if all validation passed - the object is
-            // guaranteed valid from this point onward.
+            if (maxDailyAppointments <= 0)
+                throw new ArgumentException("Maximum daily appointments must be greater than zero.");
+
             Id = id;
             FullName = fullName;
             AvailableSlots = availableSlots;
+            MaxDailyAppointments = maxDailyAppointments;
         }
 
-        // A read-only check other code can call before attempting a
-        // booking, without needing to know HOW slots are tracked
-        // internally. This keeps the internal int private and hides
-        // implementation detail from callers (abstraction).
         public bool HasAvailableSlot()
         {
             return AvailableSlots > 0;
         }
 
-        // The ONLY method allowed to decrease AvailableSlots. Because
-        // AvailableSlots has a private setter, this is the single
-        // gatekeeper for slot changes - there's exactly one place in
-        // the whole codebase where this logic can go wrong, which
-        // makes it easy to test and maintain.
-        public void ReserveSlot()
+        // Looks up how many appointments are already booked on a given
+        // date. Returns 0 if the date has no entries yet, rather than
+        // throwing - a date with no bookings is a normal, valid state.
+        public int GetAppointmentCountForDate(DateTime date)
         {
-            // Defensive check - even though HasAvailableSlot() exists for
-            // callers to check first, ReserveSlot() doesn't trust that they
-            // did. It re-validates itself so it can never be called into
-            // an invalid state, no matter what the caller does.
+            return _dailyAppointmentCounts.TryGetValue(date.Date, out var count) ? count : 0;
+        }
+
+        // Lets the service check capacity BEFORE attempting to reserve,
+        // so it can return a clean failure message instead of relying
+        // on catching an exception.
+        public bool HasCapacityOnDate(DateTime date)
+        {
+            return GetAppointmentCountForDate(date) < MaxDailyAppointments;
+        }
+
+        // ReserveSlot now takes the requested date, since "is there
+        // capacity" is no longer a single global number - it depends
+        // on which day is being booked.
+        public void ReserveSlot(DateTime date)
+        {
             if (!HasAvailableSlot())
                 throw new InvalidOperationException("No appointment slots are available.");
 
+            if (!HasCapacityOnDate(date))
+                throw new InvalidOperationException("Doctor has reached the maximum number of appointments for this date.");
+
             AvailableSlots--;
+
+            var dateKey = date.Date;
+            _dailyAppointmentCounts[dateKey] = GetAppointmentCountForDate(dateKey) + 1;
         }
     }
 }

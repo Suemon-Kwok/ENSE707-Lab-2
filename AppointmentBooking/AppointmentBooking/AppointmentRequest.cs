@@ -32,13 +32,12 @@ namespace ENSE707_AppointmentBooking
             // hardcoded as a string (safer if the parameter is ever renamed).
             Doctor = doctor ?? throw new ArgumentNullException(nameof(doctor));
 
-            // .Date strips the time component off both sides, so this
-            // compares calendar dates only (e.g. "23 July" vs "23 July"),
-            // not exact timestamps. Without this, a request made at
-            // 11:59pm for "today" could incorrectly appear to be "in
-            // the past" compared to DateTime.Today's midnight timestamp.
-            if (requestedDate.Date < DateTime.Today)
-                throw new ArgumentException("Requested appointment date cannot be in the past.");
+            // OLD: if (requestedDate.Date < DateTime.Today)
+            // NEW: rejects both past dates AND today, enforcing the clinic's
+            // one-day-notice policy. A patient calling this morning can no longer
+            // book "today" - the earliest valid date is now tomorrow.
+            if (requestedDate.Date <= DateTime.Today)
+                throw new ArgumentException("Requested appointment date must be at least one day in advance.");
 
             // Only reached once patient/doctor are confirmed non-null AND
             // the date is confirmed valid - so by the time this line runs,
